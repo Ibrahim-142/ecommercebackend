@@ -1,112 +1,108 @@
-const products = require("../data/products");
+const Product = require("../models/Product");
+const CartItem = require("../models/CartItem");
 
-// 🧠 Simple memory (per server instance)
-let userContext = {
-  lastResults: [],
-  lastQuery: ""
-};
+const chatbotHandler = async (req, res) => {
+  try {
+    const { message } = req.body;
+    const userId = req.user?.id;
 
-// 🛒 Mock cart storage (local array)
-let cart = [];
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
-const chatbotHandler = (req, res) => {
-  const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ success: false, message: "Message is required" });
+    }
 
-  if (!message) {
-    return res.status(400).json({ success: false, message: "Message is required" });
-  }
+    const text = message.toLowerCase().trim();
 
-  const text = message.toLowerCase().trim();
+    // =========================
+    // 1. ADD TO CART
+    // =========================
+    const addToCartMatch = text.match(/add\s+(.+?)(?:\s+(\d+))?\s*(to cart)?$/);
+    if (addToCartMatch) {
+      const productName = addToCartMatch[1].trim();
+      const quantity = parseInt(addToCartMatch[2]) || 1;
 
-  // =========================
-  // 1. CHECK IF USER WANTS TO ADD TO CART
-  // =========================
-  const addToCartMatch = text.match(/add\s+(.+?)(?:\s+(\d+))?\s*(to cart)?$/);
-  if (addToCartMatch) {
-    let productName = addToCartMatch[1].trim();
-    let quantity = parseInt(addToCartMatch[2]) || 1; // default to 1 if not specified
+      // 🔎 DB lookup by name (case-insensitive)
+      const product = await Product.findOne({
+        name: { $regex: new RegExp(`^${productName}$`, "i") }
+      });
 
-    // Find product in last search results (case-insensitive)
-    const product = userContext.lastResults.find(
-      p => p.name.toLowerCase() === productName.toLowerCase()
-    );
+      if (!product) {
+        return res.json({
+          success: false,
+          message: `Product "${productName}" not found in database 😅`
+        });
+      }
 
-    if (!product) {
+      // Add or update in real cart
+      let cartItem = await CartItem.findOne({ product: product._id, user: userId });
+      if (cartItem) {
+        cartItem.count += quantity;
+        await cartItem.save();
+      } else {
+        cartItem = await CartItem.create({
+          product: product._id,
+          count: quantity,
+          user: userId
+        });
+      }
+
+      const populatedItem = await cartItem.populate("product", "name price image");
+
       return res.json({
-        success: false,
-        message: `Could not find "${productName}" in your recent search results 😅`
+        success: true,
+        message: `${quantity} x ${populatedItem.product.name} added to cart 🛒`,
+        cart: populatedItem
       });
     }
 
-    // Add to cart (or update quantity if already exists)
-    const existingItemIndex = cart.findIndex(
-      item => item.name.toLowerCase() === product.name.toLowerCase()
-    );
-    if (existingItemIndex > -1) {
-      cart[existingItemIndex].quantity += quantity;
-    } else {
-      cart.push({
-        name: product.name,
-        price: product.price,
-        quantity
+    // =========================
+    // 2. PRODUCT SEARCH (tag-based)
+    // =========================
+    const queryWords = text.split(/\s+/);
+
+    // Fetch all products from DB
+    const allProducts = await Product.find();
+
+    const results = allProducts
+      .map(p => {
+        const productTags = p.tags.map(t => t.toLowerCase());
+        const matchedTags = queryWords.filter(word => productTags.includes(word));
+        const score = matchedTags.length;
+        return { ...p.toObject(), score, matchedTags };
+      })
+      .filter(p => p.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (results.length === 0) {
+      return res.json({
+        success: true,
+        message: "Couldn't find any products matching your query 😅",
+        data: [],
+        suggestions: ["summer clothes", "cheap shoes", "gift items"]
       });
     }
 
-    return res.json({
+    const response = results.slice(0, 5).map(p => ({
+      name: p.name,
+      price: p.price,
+      image: p.image,
+      matchedTags: p.matchedTags
+    }));
+
+    res.json({
       success: true,
-      message: `${quantity} x ${product.name} added to cart 🛒`,
-      cart
+      message: "Here’s what I found based on your query 👇",
+      data: response,
+      suggestions: ["Show summer options", "Show men items", "Gift ideas"]
     });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
   }
-
-  // =========================
-  // 2. NORMAL PRODUCT SEARCH
-  // =========================
-  const queryWords = text.split(/\s+/);
-
-  let results = products.map(p => {
-    const productTags = p.tags.map(t => t.toLowerCase());
-    const matchedTags = queryWords.filter(word => productTags.includes(word));
-    const score = matchedTags.length;
-    return { ...p, score, matchedTags };
-  })
-  .filter(p => p.score > 0)
-  .sort((a, b) => b.score - a.score);
-
-  if (results.length === 0) {
-    return res.json({
-      success: true,
-      message: "Couldn't find any products matching your query 😅",
-      data: [],
-      suggestions: ["summer clothes", "cheap shoes", "gift items"]
-    });
-  }
-
-  // Save context
-  userContext.lastResults = results;
-  userContext.lastQuery = text;
-
-  // Smart suggestions
-  const suggestions = [
-    "Show summer options",
-    "Show men items",
-    "Gift ideas"
-  ];
-
-  // Prepare response
-  const response = results.slice(0, 5).map(p => ({
-    name: p.name,
-    price: p.price,
-    image: p.image,
-    matchedTags: p.matchedTags
-  }));
-
-  res.json({
-    success: true,
-    message: "Here’s what I found based on your query 👇",
-    data: response,
-    suggestions
-  });
 };
 
 module.exports = { chatbotHandler };
