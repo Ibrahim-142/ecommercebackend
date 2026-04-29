@@ -29,5 +29,26 @@ async function deleteAllProducts(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+async function searchProducts(req, res) {
+  try {
+    const query = req.query.q?.trim();
 
-module.exports = { seedProducts, getProducts, deleteAllProducts};
+    if (!query) {
+      return res.json([]);
+    }
+
+    const results = await Product.find(
+      { $text: { $search: query } },
+      { score: { $meta: "textScore" } }
+    )
+      .sort({ score: { $meta: "textScore" } })
+      .limit(20);
+
+    res.json(results);
+  } catch (error) {
+    console.error("Search error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+}
+
+module.exports = { seedProducts, getProducts, deleteAllProducts,searchProducts };

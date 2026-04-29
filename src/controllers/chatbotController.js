@@ -57,24 +57,40 @@ const chatbotHandler = async (req, res) => {
         cart: populatedItem
       });
     }
-
     // =========================
-    // 2. PRODUCT SEARCH (tag-based)
+    // 2. PRODUCT SEARCH (optimized)
     // =========================
     const queryWords = text.split(/\s+/);
 
-    // Fetch all products from DB
-    const allProducts = await Product.find();
+    // 🔥 ONLY FETCH PRODUCTS THAT HAVE TAGS (small optimization)
+    const allProducts = await Product.find(
+      { tags: { $exists: true, $ne: [] } },
+      { name: 1, price: 1, image: 1, tags: 1 } // 🔥 projection (faster)
+    );
 
     const results = allProducts
       .map(p => {
-        const productTags = p.tags.map(t => t.toLowerCase());
-        const matchedTags = queryWords.filter(word => productTags.includes(word));
-        const score = matchedTags.length;
-        return { ...p.toObject(), score, matchedTags };
+        const productTags = (p.tags || []).map(t => t.toLowerCase());
+
+        let score = 0;
+
+        for (let word of queryWords) {
+          if (productTags.includes(word)) {
+            score++;
+          }
+        }
+
+        return {
+          ...p.toObject(),
+          score,
+          matchedTags: queryWords.filter(w =>
+            productTags.includes(w)
+          )
+        };
       })
       .filter(p => p.score > 0)
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5); // 🔥 moved slice earlier (faster)
 
     if (results.length === 0) {
       return res.json({
@@ -85,14 +101,14 @@ const chatbotHandler = async (req, res) => {
       });
     }
 
-    const response = results.slice(0, 5).map(p => ({
+    const response = results.map(p => ({
       name: p.name,
       price: p.price,
       image: p.image,
       matchedTags: p.matchedTags
     }));
 
-    res.json({
+    return res.json({
       success: true,
       message: "Here’s what I found based on your query 👇",
       data: response,

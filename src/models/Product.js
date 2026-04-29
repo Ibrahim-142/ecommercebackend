@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: { type: String },
@@ -15,7 +16,16 @@ const productSchema = new mongoose.Schema({
   reviewCount: { type: Number, default: 0 },
   featured: { type: Boolean, default: false },
 }, {
-  timestamps: true 
+  timestamps: true
+});
+
+productSchema.index({
+  name: "text",
+  description: "text",
+  longDescription: "text",
+  category: "text",
+  subcategory: "text",
+  tags: "text"
 });
 
 const Product = mongoose.model('Product', productSchema);
