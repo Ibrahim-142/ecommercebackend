@@ -35,10 +35,13 @@ async function registerUser(req,res){
     })
 }
 async function loginUser(req, res) {
-    const { username, email, password } = req.body;
+    const { identifier, password } = req.body;
 
     const user = await userModel.findOne({
-        $or: [{ username }, { email }]
+        $or: [
+            { username: identifier },
+            { email: identifier }
+        ]
     });
 
     if (!user) {
@@ -58,10 +61,11 @@ async function loginUser(req, res) {
         },
         process.env.JWT_SECRET
     );
+
     res.cookie("token", token, {
         httpOnly: true,
-        secure: false, // true in production (HTTPS)
-        sameSite: "lax", // important for local dev
+        secure: false,
+        sameSite: "lax",
     });
 
     res.status(200).json({

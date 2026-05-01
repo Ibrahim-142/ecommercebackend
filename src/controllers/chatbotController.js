@@ -97,7 +97,7 @@ const chatbotHandler = async (req, res) => {
         success: true,
         message: "Couldn't find any products matching your query 😅",
         data: [],
-        suggestions: ["summer clothes", "cheap shoes", "gift items"]
+        suggestions: ["summer clothes", "cheap shoes"]
       });
     }
 
